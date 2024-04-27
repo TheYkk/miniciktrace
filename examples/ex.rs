@@ -12,6 +12,10 @@ use minitrace::collector::{Config, SpanContext};
 use minitrace_jaeger::JaegerReporter;
 use minitrace::prelude::*;
 use logcall::logcall;
+use tokio::task;
+use futures::executor::block_on;
+use futures::future::join_all;
+use tokio::task::JoinSet;
 pub struct SayHiMiddleware<S> {
     /// The next service to call
     service: S,
@@ -52,14 +56,17 @@ where
             );
         };
         let fut = self.service.call(req).in_span(root);
-        Box::pin(async move {
-            let res = fut.await?;
-            let _span = LocalSpan::enter_with_local_parent("a child span");
-            {
-                ::std::io::_print(format_args!("Hi from response\n"));
-            };
-            Ok(res)
-        })
+        Box::pin(
+            async move {
+                let res = fut.await?;
+                let _span = LocalSpan::enter_with_local_parent("a child span");
+                {
+                    ::std::io::_print(format_args!("Hi from response\n"));
+                };
+                Ok(res)
+            }
+                .in_span(Span::enter_with_local_parent("box")),
+        )
     }
 }
 pub struct SayHi;
@@ -79,27 +86,32 @@ where
     }
 }
 fn main() -> std::io::Result<()> {
-    <::actix_web::rt::System>::new()
-        .block_on(async move {
-            {
-                env_logger::builder().filter_level(log::LevelFilter::Debug).init();
-                let reporter = JaegerReporter::new(
-                        "127.0.0.1:6831".parse().unwrap(),
-                        "asynchronous",
-                    )
-                    .unwrap();
-                minitrace::set_reporter(
-                    reporter,
-                    Config::default().report_before_root_finish(true),
-                );
-                HttpServer::new(|| App::new().service(greet).wrap(SayHi))
-                    .bind(("127.0.0.1", 8080))?
-                    .run()
-                    .await?;
-                minitrace::flush();
-                Ok(())
-            }
-        })
+    let body = async {
+        env_logger::builder().filter_level(log::LevelFilter::Debug).init();
+        let reporter = JaegerReporter::new(
+                "127.0.0.1:6831".parse().unwrap(),
+                "asynchronous",
+            )
+            .unwrap();
+        minitrace::set_reporter(
+            reporter,
+            Config::default().report_before_root_finish(false),
+        );
+        HttpServer::new(|| App::new().service(greet).wrap(SayHi))
+            .bind(("127.0.0.1", 8080))?
+            .run()
+            .await?;
+        minitrace::flush();
+        Ok(())
+    };
+    #[allow(clippy::expect_used, clippy::diverging_sub_expression)]
+    {
+        return tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("Failed building the Runtime")
+            .block_on(body);
+    }
 }
 async fn func2(i: u64) {
     {
@@ -115,6 +127,15 @@ async fn func2(i: u64) {
         minitrace::future::FutureExt::in_span(
             async move {
                 {
+                    Event::add_to_local_parent(
+                        "event in root",
+                        || [("key".into(), "value".into())],
+                    );
+                    futures_timer::Delay::new(std::time::Duration::from_millis(i)).await;
+                    Event::add_to_local_parent(
+                        "printing",
+                        || [("int_val".into(), i.to_string().into())],
+                    );
                     {
                         ::std::io::_print(format_args!("asd {0}\n", i));
                     }
@@ -146,9 +167,10 @@ impl ::actix_web::dev::HttpServiceFactory for greet {
                             minitrace::future::FutureExt::in_span(
                                 async move {
                                     {
-                                        for i in 0..15 {
-                                            func2(i).await;
-                                        }
+                                        let do_something_future = do_something_async(125);
+                                        let func2_futures = (0..15).map(|i| func2(i));
+                                        func2_futures.join_all(func2_futures).await;
+                                        do_something_future.await;
                                         {
                                             let res = ::alloc::fmt::format(
                                                 format_args!("Hello {0}!", name),
@@ -171,7 +193,7 @@ impl ::actix_web::dev::HttpServiceFactory for greet {
                             format_args!("{0}() => {1:?}", "greet", &__ret_value),
                             lvl,
                             &("trace_test", "trace_test", "src/main.rs"),
-                            101u32,
+                            106u32,
                             (),
                         );
                     }
@@ -186,4 +208,50 @@ impl ::actix_web::dev::HttpServiceFactory for greet {
             .to(greet);
         ::actix_web::dev::HttpServiceFactory::register(__resource, __config);
     }
+}
+async fn do_something_async(i: u64) {
+    async move {
+        let __ret_value = async move {
+            {
+                {
+                    let __span__ = minitrace::Span::enter_with_local_parent({
+                        fn f() {}
+                        fn type_name_of<T>(_: T) -> &'static str {
+                            std::any::type_name::<T>()
+                        }
+                        let name = type_name_of(f);
+                        let name = &name[..name.len() - 3];
+                        name.trim_end_matches("::{{closure}}")
+                    });
+                    minitrace::future::FutureExt::in_span(
+                        async move {
+                            {
+                                futures_timer::Delay::new(
+                                        std::time::Duration::from_millis(i),
+                                    )
+                                    .await;
+                            }
+                        },
+                        __span__,
+                    )
+                }
+                    .await
+            }
+        }
+            .await;
+        {
+            let lvl = ::log::Level::Debug;
+            if lvl <= ::log::STATIC_MAX_LEVEL && lvl <= ::log::max_level() {
+                ::log::__private_api::log(
+                    format_args!("{0}() => {1:?}", "do_something_async", &__ret_value),
+                    lvl,
+                    &("trace_test", "trace_test", "src/main.rs"),
+                    131u32,
+                    (),
+                );
+            }
+        };
+        __ret_value
+    }
+        .await
 }

@@ -10,6 +10,7 @@ use logcall::logcall;
 use tokio::task;
 use futures::executor::block_on;
 use futures::future::join_all;
+use tokio::task::JoinSet;
 
 
 pub struct SayHiMiddleware<S> {
@@ -95,7 +96,7 @@ async fn main() -> std::io::Result<()> {
 // #[logcall("info")]
 async fn func2(i: u64) {
     Event::add_to_local_parent("event in root", || [("key".into(), "value".into())]);
-    futures_timer::Delay::new(std::time::Duration::from_millis(i*)).await;
+    futures_timer::Delay::new(std::time::Duration::from_millis(i)).await;
     Event::add_to_local_parent("printing", || [("int_val".into(),i.to_string().into())]);
     println!("asd {}",i)
 }
