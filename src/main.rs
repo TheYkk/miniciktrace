@@ -49,7 +49,7 @@ impl<S, B> Service<ServiceRequest> for SayHiMiddleware<S>
         Box::pin(async move {
             let res = fut.await?;
             let _span = LocalSpan::enter_with_local_parent("a child span");
-            println!("Hi from response");
+            println!("Hi from respoanse");
             Ok(res)
         }.in_span(Span::enter_with_local_parent("box")))
     }
@@ -82,6 +82,7 @@ async fn main() -> std::io::Result<()> {
     env_logger::builder().filter_level(log::LevelFilter::Debug).init();
 
     let reporter = JaegerReporter::new("127.0.0.1:6831".parse().unwrap(), "asynchronous").unwrap();
+
     minitrace::set_reporter(reporter, Config::default().report_before_root_finish(false));
 
     HttpServer::new(|| App::new().service(greet).wrap(SayHi))
