@@ -1,4 +1,3 @@
-use std::fmt::format;
 use std::future::ready;
 use std::future::Future;
 use std::future::Ready;
@@ -6,18 +5,13 @@ use std::pin::Pin;
 
 use actix_web::dev::Service;
 use actix_web::web;
-use futures::future::try_join_all;
 #[cfg(not(debug_assertions))]
 use human_panic::setup_panic;
-use tokio::join;
-use tokio::select;
 use tokio::spawn;
 use tokio::time::sleep;
 
 #[cfg(debug_assertions)]
 extern crate better_panic;
-
-use std::collections::BTreeMap;
 
 #[cfg(feature = "dhat-heap")]
 #[global_allocator]
@@ -32,15 +26,11 @@ use actix_web::App;
 use actix_web::Error;
 use actix_web::HttpServer;
 use actix_web::Responder;
-use futures::executor::block_on;
 use futures::future::join_all;
 use logcall::logcall;
 use minitrace::collector::Config;
-use minitrace::collector::SpanContext;
 use minitrace::prelude::*;
 use minitrace_jaeger::JaegerReporter;
-use tokio::task;
-use tokio::task::JoinSet;
 
 pub struct SayHiMiddleware<S> {
     /// The next service to call
@@ -73,16 +63,16 @@ where
 
         // A more complex middleware, could return an error or an early response here.
 
-        let fut = self.service.call(req).in_span(root);
+        let fut = self.service.call(req);
 
         Box::pin(
             async move {
-                let res = fut.await?;
-                let _span = LocalSpan::enter_with_local_parent("a child span");
-                println!("Hi from respoanse");
+                let res = fut
+                    .in_span(Span::enter_with_local_parent("Handle request"))
+                    .await?;
                 Ok(res)
             }
-            .in_span(Span::enter_with_local_parent("box")),
+            .in_span(root),
         )
     }
 }
@@ -135,7 +125,7 @@ async fn main() -> std::io::Result<()> {
 
     let reporter = JaegerReporter::new("127.0.0.1:6831".parse().unwrap(), "asynchronous").unwrap();
 
-    minitrace::set_reporter(reporter, Config::default().report_before_root_finish(false));
+    minitrace::set_reporter(reporter, Config::default());
 
     HttpServer::new(|| App::new().service(greet).wrap(SayHi))
         .bind(("127.0.0.1", 8080))?
@@ -160,23 +150,15 @@ async fn func2(i: u64) {
 #[trace]
 #[logcall("info")]
 async fn greet(name: web::Path<String>) -> impl Responder {
-    let do_something_future = do_something_async(125);
-
     let func2_futures = (0..15).map(|i| func2(i));
-    let _ = spawn(async { do_something_future.await });
+
+    // Background, other thread
+    let do_something_future = do_something_async(125).enter_on_poll("Sub Task");
+
+    let _ = spawn(do_something_future);
+
     join_all(func2_futures).await;
-    // join!(join_all(func2_futures), do_something_future());
 
-    // do_something_future.await;
-
-    // async {
-    //     do_something_async(125).await;
-    // }.in_span(Span::enter_with_local_parent("aync_job"));
-    //
-    //
-    // for i in 0..15 {
-    //     func2(i).await;
-    // }
     format!("Hello {name}!")
 }
 
