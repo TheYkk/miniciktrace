@@ -11,5 +11,47 @@ logcall = "0.1.5"
 env_logger = "0.11.3"
 log = "0.4.21"
 futures-timer = "3.0.3"
-tokio = {features = ["full"]}
+tokio = { features = ["full"] }
 futures = "0.3.30"
+
+better-panic = "0.3"
+human-panic = "2"
+dhat = { version = "0.3", optional = true }
+
+
+[features]
+dev = []
+dhat-heap = ["dep:dhat"]
+
+
+[profile.dev]
+opt-level = 0
+debug = true
+rpath = false
+lto = false
+debug-assertions = true
+codegen-units = 4
+
+[profile.release]
+opt-level = 3
+debug = 1
+rpath = false
+lto = true
+debug-assertions = false
+codegen-units = 1
+
+[profile.test]
+opt-level = 1
+debug = true
+rpath = false
+lto = false
+debug-assertions = true
+codegen-units = 4
+
+[profile.bench]
+opt-level = 3
+debug = false
+rpath = false
+lto = true
+debug-assertions = false
+codegen-units = 1

@@ -4,17 +4,30 @@ use std::prelude::rust_2021::*;
 #[macro_use]
 extern crate std;
 use std::fmt::format;
-use std::future::{Future, Ready, ready};
+use std::future::ready;
+use std::future::Future;
+use std::future::Ready;
 use std::pin::Pin;
-use actix_web::{get, web, App, HttpServer, Responder, Error};
-use actix_web::dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform};
-use minitrace::collector::{Config, SpanContext};
-use minitrace_jaeger::JaegerReporter;
-use minitrace::prelude::*;
-use logcall::logcall;
-use tokio::task;
+
+use actix_web::dev::forward_ready;
+use actix_web::dev::Service;
+use actix_web::dev::ServiceRequest;
+use actix_web::dev::ServiceResponse;
+use actix_web::dev::Transform;
+use actix_web::get;
+use actix_web::web;
+use actix_web::App;
+use actix_web::Error;
+use actix_web::HttpServer;
+use actix_web::Responder;
 use futures::executor::block_on;
 use futures::future::join_all;
+use logcall::logcall;
+use minitrace::collector::Config;
+use minitrace::collector::SpanContext;
+use minitrace::prelude::*;
+use minitrace_jaeger::JaegerReporter;
+use tokio::task;
 use tokio::task::JoinSet;
 pub struct SayHiMiddleware<S> {
     /// The next service to call
@@ -35,25 +48,27 @@ where
         &self,
         cx: &mut ::core::task::Context<'_>,
     ) -> ::core::task::Poll<Result<(), Self::Error>> {
-        self.service.poll_ready(cx).map_err(::core::convert::Into::into)
+        self.service
+            .poll_ready(cx)
+            .map_err(::core::convert::Into::into)
     }
     fn call(&self, req: ServiceRequest) -> Self::Future {
         let parent = SpanContext::random();
         let root = Span::root(
-                {
-                    let res = ::alloc::fmt::format(
-                        format_args!("HTTP {0} : {1}", req.method(), req.path()),
-                    );
-                    res
-                },
-                parent,
-            )
-            .with_property(|| ("aa", "bb"));
+            {
+                let res =
+                    ::alloc::fmt::format(format_args!("HTTP {0} : {1}", req.method(), req.path()));
+                res
+            },
+            parent,
+        )
+        .with_property(|| ("aa", "bb"));
         let _guard = root.set_local_parent();
         {
-            ::std::io::_print(
-                format_args!("Hi from start. You requested: {0}\n", req.path()),
-            );
+            ::std::io::_print(format_args!(
+                "Hi from start. You requested: {0}\n",
+                req.path()
+            ));
         };
         let fut = self.service.call(req).in_span(root);
         Box::pin(
@@ -65,7 +80,7 @@ where
                 };
                 Ok(res)
             }
-                .in_span(Span::enter_with_local_parent("box")),
+            .in_span(Span::enter_with_local_parent("box")),
         )
     }
 }
@@ -87,16 +102,12 @@ where
 }
 fn main() -> std::io::Result<()> {
     let body = async {
-        env_logger::builder().filter_level(log::LevelFilter::Debug).init();
-        let reporter = JaegerReporter::new(
-                "127.0.0.1:6831".parse().unwrap(),
-                "asynchronous",
-            )
-            .unwrap();
-        minitrace::set_reporter(
-            reporter,
-            Config::default().report_before_root_finish(false),
-        );
+        env_logger::builder()
+            .filter_level(log::LevelFilter::Debug)
+            .init();
+        let reporter =
+            JaegerReporter::new("127.0.0.1:6831".parse().unwrap(), "asynchronous").unwrap();
+        minitrace::set_reporter(reporter, Config::default().report_before_root_finish(false));
         HttpServer::new(|| App::new().service(greet).wrap(SayHi))
             .bind(("127.0.0.1", 8080))?
             .run()
@@ -127,15 +138,13 @@ async fn func2(i: u64) {
         minitrace::future::FutureExt::in_span(
             async move {
                 {
-                    Event::add_to_local_parent(
-                        "event in root",
-                        || [("key".into(), "value".into())],
-                    );
+                    Event::add_to_local_parent("event in root", || {
+                        [("key".into(), "value".into())]
+                    });
                     futures_timer::Delay::new(std::time::Duration::from_millis(i)).await;
-                    Event::add_to_local_parent(
-                        "printing",
-                        || [("int_val".into(), i.to_string().into())],
-                    );
+                    Event::add_to_local_parent("printing", || {
+                        [("int_val".into(), i.to_string().into())]
+                    });
                     {
                         ::std::io::_print(format_args!("asd {0}\n", i));
                     }
@@ -144,7 +153,7 @@ async fn func2(i: u64) {
             __span__,
         )
     }
-        .await
+    .await
 }
 #[allow(non_camel_case_types, missing_docs)]
 pub struct greet;
@@ -172,9 +181,10 @@ impl ::actix_web::dev::HttpServiceFactory for greet {
                                         func2_futures.join_all(func2_futures).await;
                                         do_something_future.await;
                                         {
-                                            let res = ::alloc::fmt::format(
-                                                format_args!("Hello {0}!", name),
-                                            );
+                                            let res = ::alloc::fmt::format(format_args!(
+                                                "Hello {0}!",
+                                                name
+                                            ));
                                             res
                                         }
                                     }
@@ -182,10 +192,10 @@ impl ::actix_web::dev::HttpServiceFactory for greet {
                                 __span__,
                             )
                         }
-                            .await
+                        .await
                     }
                 }
-                    .await;
+                .await;
                 {
                     let lvl = ::log::Level::Info;
                     if lvl <= ::log::STATIC_MAX_LEVEL && lvl <= ::log::max_level() {
@@ -200,7 +210,7 @@ impl ::actix_web::dev::HttpServiceFactory for greet {
                 };
                 __ret_value
             }
-                .await
+            .await
         }
         let __resource = ::actix_web::Resource::new("/hello/{name}")
             .name("greet")
@@ -226,19 +236,17 @@ async fn do_something_async(i: u64) {
                     minitrace::future::FutureExt::in_span(
                         async move {
                             {
-                                futures_timer::Delay::new(
-                                        std::time::Duration::from_millis(i),
-                                    )
+                                futures_timer::Delay::new(std::time::Duration::from_millis(i))
                                     .await;
                             }
                         },
                         __span__,
                     )
                 }
-                    .await
+                .await
             }
         }
-            .await;
+        .await;
         {
             let lvl = ::log::Level::Debug;
             if lvl <= ::log::STATIC_MAX_LEVEL && lvl <= ::log::max_level() {
@@ -253,5 +261,5 @@ async fn do_something_async(i: u64) {
         };
         __ret_value
     }
-        .await
+    .await
 }

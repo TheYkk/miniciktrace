@@ -1,0 +1,1 @@
+cargo run --features dhat-heap --features dev --release
