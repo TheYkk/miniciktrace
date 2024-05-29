@@ -2,11 +2,13 @@ use std::future::ready;
 use std::future::Future;
 use std::future::Ready;
 use std::pin::Pin;
+use std::time::Duration;
 
 use actix_web::dev::Service;
 use actix_web::web;
 #[cfg(not(debug_assertions))]
 use human_panic::setup_panic;
+use minitrace::collector::ConsoleReporter;
 use tokio::spawn;
 use tokio::time::sleep;
 
@@ -125,6 +127,7 @@ async fn main() -> std::io::Result<()> {
 
     let reporter = JaegerReporter::new("127.0.0.1:6831".parse().unwrap(), "asynchronous").unwrap();
 
+    // minitrace::set_reporter(ConsoleReporter, Config::default());
     minitrace::set_reporter(reporter, Config::default());
 
     HttpServer::new(|| App::new().service(greet).wrap(SayHi))
@@ -150,25 +153,43 @@ async fn func2(i: u64) {
 #[trace]
 #[logcall("info")]
 async fn greet(name: web::Path<String>) -> impl Responder {
+    // let child_span = Span::enter_with_local_parent("cross-thread");
+    let context = SpanContext::current_local_parent();
+    println!("{:?}", context.unwrap());
+
     let func2_futures = (0..15).map(|i| func2(i));
 
     // Background, other thread
-    let do_something_future = do_something_async(125).enter_on_poll("Sub Task");
+    let do_something_future =
+        do_something_async(125).in_span(Span::enter_with_local_parent("bcsa"));
 
     let _ = spawn(do_something_future);
 
     join_all(func2_futures).await;
-
+    sleep(Duration::from_secs(1)).await;
     format!("Hello {name}!")
 }
 
 #[trace]
-#[logcall("debug")]
+// #[logcall("debug")]
 async fn do_something_async(i: u64) {
+    let context = SpanContext::current_local_parent();
+    if context.is_none() {
+        panic!("no context")
+    }
     println!("wait 1");
+    let child_span = Span::enter_with_local_parent("wait 1");
+    println!("{:?}", context.unwrap());
+    Span::root("baass", context.unwrap());
+
     sleep(std::time::Duration::from_millis(i / 3)).await;
+
+    let child_span = Span::enter_with_local_parent("wait 2");
+
     println!("wait 2");
     sleep(std::time::Duration::from_millis(i / 3)).await;
+    let child_span = Span::enter_with_local_parent("wait 3");
+
     println!("wait 3");
     sleep(std::time::Duration::from_millis(i / 3)).await;
     println!("wait done");
